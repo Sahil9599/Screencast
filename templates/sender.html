@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Mirror Cast — Sender 📱</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .preview-mini {
+            width: 100%;
+            max-height: 200px;
+            border-radius: var(--radius-sm);
+            object-fit: contain;
+            background: #000;
+            margin-top: 16px;
+        }
+        .quality-selector {
+            display: flex;
+            gap: 8px;
+            margin: 16px 0;
+            flex-wrap: wrap;
+        }
+        .quality-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .quality-btn.active {
+            background: rgba(79, 140, 255, 0.15);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 13px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .info-row .label { color: var(--text-muted); }
+        .info-row .value { color: var(--text-primary); font-weight: 500; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header fade-in">
+            <div class="logo">📱</div>
+            <h1>Sender</h1>
+            <p class="subtitle">Apni screen PC pe cast karo</p>
+        </header>
+
+        <!-- Status -->
+        <div class="status-bar fade-in fade-in-delay-1" id="statusBar">
+            <div class="status-dot waiting" id="statusDot"></div>
+            <span id="statusText">Connecting to server...</span>
+        </div>
+
+        <!-- Quality Settings -->
+        <div class="card fade-in fade-in-delay-2">
+            <h2>⚙️ Quality Settings</h2>
+            <p style="margin-bottom:12px;">Stream quality select karo (low = fast, high = detailed)</p>
+            <div class="quality-selector">
+                <button class="quality-btn" data-quality="low" onclick="setQuality('low')">📶 Low</button>
+                <button class="quality-btn active" data-quality="medium" onclick="setQuality('medium')">📶 Medium</button>
+                <button class="quality-btn" data-quality="high" onclick="setQuality('high')">📶 High</button>
+            </div>
+            <div class="info-row">
+                <span class="label">Resolution</span>
+                <span class="value" id="resolutionInfo">Auto</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Frame Rate</span>
+                <span class="value" id="fpsInfo">30 FPS</span>
+            </div>
+        </div>
+
+        <!-- Action Button -->
+        <div class="action-section fade-in fade-in-delay-3">
+            <button class="btn btn-primary btn-lg btn-block" id="castBtn" onclick="toggleCasting()" disabled>
+                <span id="castBtnIcon">🚀</span>
+                <span id="castBtnText">Start Casting</span>
+            </button>
+        </div>
+
+        <!-- Preview -->
+        <div class="card fade-in fade-in-delay-3" id="previewCard" style="display:none;">
+            <h2>👀 Preview</h2>
+            <video class="preview-mini" id="previewVideo" autoplay muted playsinline></video>
+            <div class="stats" style="margin-top:16px;">
+                <div class="stat-item">
+                    <span>⏱ Duration:</span>
+                    <span class="stat-value" id="duration">00:00</span>
+                </div>
+                <div class="stat-item">
+                    <span>📊 Status:</span>
+                    <span class="stat-value" id="streamStatus">—</span>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>Mirror Cast • Sender Mode</p>
+        </footer>
+    </div>
+
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        // ─── State ────────────────────────────────────
+        let socket = null;
+        let peerConnection = null;
+        let localStream = null;
+        let isCasting = false;
+        let startTime = null;
+        let durationInterval = null;
+
+        const qualityPresets = {
+            low:    { width: 640,  height: 480,  frameRate: 15, bitrate: 500000   },
+            medium: { width: 1280, height: 720,  frameRate: 30, bitrate: 1500000  },
+            high:   { width: 1920, height: 1080, frameRate: 30, bitrate: 3000000  }
+        };
+        let currentQuality = 'medium';
+
+        // ─── UI Helpers ───────────────────────────────
+        const $ = id => document.getElementById(id);
+
+        function setStatus(text, state) {
+            $('statusText').textContent = text;
+            const dot = $('statusDot');
+            dot.className = 'status-dot ' + state;
+        }
+
+        function setQuality(q) {
+            currentQuality = q;
+            document.querySelectorAll('.quality-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.quality === q);
+            });
+            const preset = qualityPresets[q];
+            $('resolutionInfo').textContent = `${preset.width}×${preset.height}`;
+            $('fpsInfo').textContent = `${preset.frameRate} FPS`;
+        }
+
+        function updateDuration() {
+            if (!startTime) return;
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const s = String(elapsed % 60).padStart(2, '0');
+            $('duration').textContent = `${m}:${s}`;
+        }
+
+        // ─── Socket Connection ────────────────────────
+        function connectSocket() {
+            socket = io({ transports: ['websocket', 'polling'] });
+
+            socket.on('connect', () => {
+                socket.emit('register', { role: 'sender' });
+                setStatus('Connected to server. Waiting for receiver (PC)...', 'waiting');
+                $('castBtn').disabled = false;
+            });
+
+            socket.on('peer-status', (data) => {
+                if (data.role === 'receiver' && data.status === 'connected') {
+                    setStatus('✅ Receiver (PC) is ready! Tap "Start Casting"', 'connected');
+                }
+            });
+
+            socket.on('answer', async (data) => {
+                console.log('[WebRTC] Received answer');
+                if (peerConnection) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+                }
+            });
+
+            socket.on('ice-candidate', async (data) => {
+                console.log('[WebRTC] Received ICE candidate');
+                if (peerConnection && data.candidate) {
+                    try {
+                        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+                    } catch (e) {
+                        console.warn('ICE candidate error:', e);
+                    }
+                }
+            });
+
+            socket.on('peer-disconnected', (data) => {
+                if (data.role === 'receiver') {
+                    setStatus('⚠️ Receiver disconnected', 'error');
+                    if (isCasting) stopCasting();
+                }
+            });
+
+            socket.on('disconnect', () => {
+                setStatus('❌ Disconnected from server', 'error');
+                $('castBtn').disabled = true;
+            });
+
+            socket.on('connect_error', () => {
+                setStatus('❌ Cannot connect to server', 'error');
+            });
+        }
+
+        // ─── WebRTC ───────────────────────────────────
+        async function startCasting() {
+            const preset = qualityPresets[currentQuality];
+
+            try {
+                // Capture screen
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        width: { ideal: preset.width },
+                        height: { ideal: preset.height },
+                        frameRate: { ideal: preset.frameRate }
+                    },
+                    audio: true  // Include audio if available
+                });
+            } catch (err) {
+                console.error('Screen capture failed:', err);
+                if (err.name === 'NotAllowedError') {
+                    setStatus('❌ Screen share permission denied', 'error');
+                } else {
+                    setStatus(`❌ Screen capture not supported: ${err.message}`, 'error');
+                }
+                return;
+            }
+
+            // Handle stream end (user stops sharing via system UI)
+            localStream.getVideoTracks()[0].onended = () => {
+                console.log('[Stream] User stopped sharing');
+                stopCasting();
+            };
+
+            // Show preview
+            $('previewVideo').srcObject = localStream;
+            $('previewCard').style.display = 'block';
+
+            // Create peer connection (no STUN needed for local network)
+            peerConnection = new RTCPeerConnection({
+                iceServers: [] // Local network only - no STUN/TURN needed
+            });
+
+            // Add tracks to connection
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            // Set encoding parameters for bitrate control
+            peerConnection.getSenders().forEach(sender => {
+                if (sender.track && sender.track.kind === 'video') {
+                    const params = sender.getParameters();
+                    if (!params.encodings) params.encodings = [{}];
+                    params.encodings[0].maxBitrate = preset.bitrate;
+                    sender.setParameters(params).catch(e => console.warn('Bitrate setting failed:', e));
+                }
+            });
+
+            // ICE candidates
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('ice-candidate', { candidate: event.candidate });
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                const state = peerConnection.iceConnectionState;
+                console.log('[WebRTC] ICE state:', state);
+                if (state === 'connected' || state === 'completed') {
+                    setStatus('🟢 Casting! Screen is being streamed to PC', 'streaming');
+                    $('streamStatus').textContent = 'Streaming';
+                    startTime = Date.now();
+                    durationInterval = setInterval(updateDuration, 1000);
+                } else if (state === 'disconnected' || state === 'failed') {
+                    setStatus('⚠️ Connection lost', 'error');
+                    $('streamStatus').textContent = 'Disconnected';
+                }
+            };
+
+            // Create and send offer
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('offer', { sdp: peerConnection.localDescription });
+
+            isCasting = true;
+            $('castBtn').onclick = () => toggleCasting();
+            $('castBtnIcon').textContent = '⏹';
+            $('castBtnText').textContent = 'Stop Casting';
+            $('castBtn').className = 'btn btn-danger btn-lg btn-block';
+            setStatus('📡 Connecting to receiver...', 'waiting');
+        }
+
+        function stopCasting() {
+            // Stop all tracks
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+
+            // Close peer connection
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+
+            // Notify receiver
+            if (socket) {
+                socket.emit('stop-sharing');
+            }
+
+            // Clear timer
+            if (durationInterval) {
+                clearInterval(durationInterval);
+                durationInterval = null;
+            }
+            startTime = null;
+
+            // Update UI
+            isCasting = false;
+            $('castBtnIcon').textContent = '🚀';
+            $('castBtnText').textContent = 'Start Casting';
+            $('castBtn').className = 'btn btn-primary btn-lg btn-block';
+            $('previewCard').style.display = 'none';
+            $('previewVideo').srcObject = null;
+            $('duration').textContent = '00:00';
+            $('streamStatus').textContent = '—';
+            setStatus('Ready to cast. Tap "Start Casting"', 'connected');
+        }
+
+        function toggleCasting() {
+            if (isCasting) {
+                stopCasting();
+            } else {
+                startCasting();
+            }
+        }
+
+        // ─── Init ─────────────────────────────────────
+        setQuality('medium');
+        connectSocket();
+    </script>
+</body>
+</html>

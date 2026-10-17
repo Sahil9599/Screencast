@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirror Cast — Receiver 📺</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .video-area {
+            position: relative;
+            width: 100%;
+        }
+        .video-frame {
+            width: 100%;
+            background: #000;
+            border-radius: var(--radius);
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            position: relative;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-frame video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+        .video-frame video.active {
+            display: block;
+        }
+        .waiting-screen {
+            text-align: center;
+            padding: 60px 20px;
+        }
+        .waiting-screen .icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: float 3s ease-in-out infinite;
+        }
+        .waiting-screen h3 {
+            font-size: 20px;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+        .waiting-screen p {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            margin-top: 16px;
+        }
+        .toolbar-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .tb-btn {
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tb-btn:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+        }
+        .tb-btn.active {
+            background: rgba(79, 140, 255, 0.15);
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+        .stream-info {
+            display: flex;
+            gap: 24px;
+            justify-content: center;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+        .stream-info .info-item {
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .stream-info .info-value {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        /* Fullscreen */
+        .fs-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #000;
+            z-index: 9999;
+            cursor: none;
+        }
+        .fs-overlay video {
+            width: 100%; height: 100%;
+            object-fit: contain;
+        }
+        .fs-overlay .fs-exit {
+            position: fixed;
+            top: 20px; right: 20px;
+            z-index: 10000;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .fs-overlay:hover .fs-exit {
+            opacity: 1;
+        }
+        .fs-overlay:hover {
+            cursor: default;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header fade-in">
+            <div class="logo">📺</div>
+            <h1>Receiver</h1>
+            <p class="subtitle">Mobile screen yahan dikhegi</p>
+        </header>
+
+        <!-- Status -->
+        <div class="status-bar fade-in fade-in-delay-1" id="statusBar">
+            <div class="status-dot waiting" id="statusDot"></div>
+            <span id="statusText">Connecting to server...</span>
+        </div>
+
+        <!-- Video Area -->
+        <div class="video-area fade-in fade-in-delay-2">
+            <div class="video-frame" id="videoFrame">
+                <!-- Waiting screen -->
+                <div class="waiting-screen" id="waitingScreen">
+                    <div class="icon">📱</div>
+                    <h3>Waiting for mobile...</h3>
+                    <p>Mobile pe sender page kholo aur "Start Casting" dabao</p>
+                </div>
+                <!-- Video element -->
+                <video id="remoteVideo" autoplay playsinline></video>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="toolbar" id="toolbar">
+                <div class="toolbar-group">
+                    <button class="tb-btn" onclick="toggleFullscreen()" title="Fullscreen (F)">
+                        <span>🖥</span> Fullscreen
+                    </button>
+                    <button class="tb-btn" onclick="togglePiP()" title="Picture-in-Picture (P)">
+                        <span>📌</span> PiP
+                    </button>
+                    <button class="tb-btn" onclick="takeScreenshot()" title="Screenshot (S)">
+                        <span>📸</span> Screenshot
+                    </button>
+                </div>
+                <div class="toolbar-group">
+                    <button class="tb-btn" onclick="toggleFit()" id="fitBtn" title="Toggle Fit Mode">
+                        <span>🔲</span> <span id="fitLabel">Contain</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stream Info -->
+            <div class="stream-info" id="streamInfo" style="display:none;">
+                <div class="info-item">
+                    <span>📐</span>
+                    Resolution: <span class="info-value" id="infoRes">—</span>
+                </div>
+                <div class="info-item">
+                    <span>⏱</span>
+                    Duration: <span class="info-value" id="infoDuration">00:00</span>
+                </div>
+                <div class="info-item">
+                    <span>📊</span>
+                    Bitrate: <span class="info-value" id="infoBitrate">—</span>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>Mirror Cast • Receiver Mode • Press <kbd>F</kbd> for fullscreen, <kbd>P</kbd> for PiP</p>
+        </footer>
+    </div>
+
+    <!-- Fullscreen Overlay -->
+    <div class="fs-overlay" id="fsOverlay">
+        <video id="fsVideo" autoplay playsinline></video>
+        <button class="fs-exit" onclick="exitFullscreen()">✕ Exit Fullscreen (Esc)</button>
+    </div>
+
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        // ─── State ────────────────────────────────────
+        let socket = null;
+        let peerConnection = null;
+        let remoteStream = null;
+        let startTime = null;
+        let durationInterval = null;
+        let statsInterval = null;
+        let isFullscreen = false;
+        let fitMode = 'contain';
+
+        const $ = id => document.getElementById(id);
+
+        // ─── UI Helpers ───────────────────────────────
+        function setStatus(text, state) {
+            $('statusText').textContent = text;
+            $('statusDot').className = 'status-dot ' + state;
+        }
+
+        function showVideo(show) {
+            $('waitingScreen').style.display = show ? 'none' : 'block';
+            const video = $('remoteVideo');
+            video.classList.toggle('active', show);
+            $('streamInfo').style.display = show ? 'flex' : 'none';
+        }
+
+        function updateDuration() {
+            if (!startTime) return;
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const s = String(elapsed % 60).padStart(2, '0');
+            $('infoDuration').textContent = `${m}:${s}`;
+        }
+
+        async function updateStats() {
+            if (!peerConnection) return;
+            try {
+                const stats = await peerConnection.getStats();
+                stats.forEach(report => {
+                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        // Resolution
+                        if (report.frameWidth && report.frameHeight) {
+                            $('infoRes').textContent = `${report.frameWidth}×${report.frameHeight}`;
+                        }
+                        // Bitrate
+                        if (report.bytesReceived !== undefined) {
+                            const bytes = report.bytesReceived;
+                            const kbps = Math.round((bytes * 8) / ((Date.now() - startTime) / 1000) / 1000);
+                            $('infoBitrate').textContent = kbps > 1000 
+                                ? `${(kbps / 1000).toFixed(1)} Mbps` 
+                                : `${kbps} Kbps`;
+                        }
+                    }
+                });
+            } catch (e) {}
+        }
+
+        // ─── Controls ─────────────────────────────────
+        function toggleFullscreen() {
+            const overlay = $('fsOverlay');
+            if (!isFullscreen) {
+                overlay.style.display = 'block';
+                $('fsVideo').srcObject = remoteStream;
+                $('fsVideo').style.objectFit = fitMode;
+                // Try native fullscreen
+                if (overlay.requestFullscreen) overlay.requestFullscreen();
+                isFullscreen = true;
+            } else {
+                exitFullscreen();
+            }
+        }
+
+        function exitFullscreen() {
+            $('fsOverlay').style.display = 'none';
+            $('fsVideo').srcObject = null;
+            if (document.fullscreenElement) document.exitFullscreen();
+            isFullscreen = false;
+        }
+
+        async function togglePiP() {
+            const video = $('remoteVideo');
+            try {
+                if (document.pictureInPictureElement) {
+                    await document.exitPictureInPicture();
+                } else if (video.srcObject) {
+                    await video.requestPictureInPicture();
+                }
+            } catch (e) {
+                console.warn('PiP error:', e);
+            }
+        }
+
+        function takeScreenshot() {
+            const video = $('remoteVideo');
+            if (!video.srcObject) return;
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const link = document.createElement('a');
+            link.download = `mirror-cast-${Date.now()}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function toggleFit() {
+            fitMode = fitMode === 'contain' ? 'cover' : 'contain';
+            $('remoteVideo').style.objectFit = fitMode;
+            $('fitLabel').textContent = fitMode === 'contain' ? 'Contain' : 'Cover';
+            if (isFullscreen) $('fsVideo').style.objectFit = fitMode;
+        }
+
+        // ─── Keyboard Shortcuts ───────────────────────
+        document.addEventListener('keydown', (e) => {
+            switch (e.key.toLowerCase()) {
+                case 'f': toggleFullscreen(); break;
+                case 'p': togglePiP(); break;
+                case 's': takeScreenshot(); break;
+                case 'escape': if (isFullscreen) exitFullscreen(); break;
+            }
+        });
+
+        // ─── Socket Connection ────────────────────────
+        function connectSocket() {
+            socket = io({ transports: ['websocket', 'polling'] });
+
+            socket.on('connect', () => {
+                socket.emit('register', { role: 'receiver' });
+                setStatus('✅ Connected! Waiting for mobile to start casting...', 'waiting');
+            });
+
+            socket.on('peer-status', (data) => {
+                if (data.role === 'sender' && data.status === 'connected') {
+                    setStatus('📱 Mobile connected! Waiting for screen share...', 'waiting');
+                }
+            });
+
+            socket.on('offer', async (data) => {
+                console.log('[WebRTC] Received offer');
+                await handleOffer(data);
+            });
+
+            socket.on('ice-candidate', async (data) => {
+                if (peerConnection && data.candidate) {
+                    try {
+                        await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+                    } catch (e) {
+                        console.warn('ICE candidate error:', e);
+                    }
+                }
+            });
+
+            socket.on('peer-disconnected', (data) => {
+                if (data.role === 'sender') {
+                    handleStreamEnd('Mobile disconnected');
+                }
+            });
+
+            socket.on('stop-sharing', () => {
+                handleStreamEnd('Mobile stopped sharing');
+            });
+
+            socket.on('disconnect', () => {
+                setStatus('❌ Disconnected from server', 'error');
+            });
+        }
+
+        // ─── WebRTC ───────────────────────────────────
+        async function handleOffer(data) {
+            // Clean up previous connection
+            if (peerConnection) {
+                peerConnection.close();
+            }
+
+            peerConnection = new RTCPeerConnection({
+                iceServers: [] // Local network - no STUN needed
+            });
+
+            peerConnection.ontrack = (event) => {
+                console.log('[WebRTC] Received track:', event.track.kind);
+                remoteStream = event.streams[0];
+                $('remoteVideo').srcObject = remoteStream;
+                showVideo(true);
+                setStatus('🟢 Receiving screen stream!', 'streaming');
+
+                startTime = Date.now();
+                durationInterval = setInterval(updateDuration, 1000);
+                statsInterval = setInterval(updateStats, 2000);
+            };
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('ice-candidate', { candidate: event.candidate });
+                }
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                const state = peerConnection.iceConnectionState;
+                console.log('[WebRTC] ICE state:', state);
+                if (state === 'disconnected' || state === 'failed') {
+                    handleStreamEnd('Connection lost');
+                }
+            };
+
+            // Set offer and create answer
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(data.sdp));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            socket.emit('answer', { sdp: peerConnection.localDescription });
+            console.log('[WebRTC] Sent answer');
+        }
+
+        function handleStreamEnd(reason) {
+            if (durationInterval) { clearInterval(durationInterval); durationInterval = null; }
+            if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+            startTime = null;
+
+            if (peerConnection) { peerConnection.close(); peerConnection = null; }
+            remoteStream = null;
+
+            $('remoteVideo').srcObject = null;
+            showVideo(false);
+            if (isFullscreen) exitFullscreen();
+
+            setStatus(`⚠️ ${reason}. Waiting for new connection...`, 'waiting');
+        }
+
+        // ─── Init ─────────────────────────────────────
+        connectSocket();
+    </script>
+</body>
+</html>

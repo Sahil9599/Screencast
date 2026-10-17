@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Mirror Cast Recordings
+recordings/
+*.mp4
+*.mkv
+
+# Temporary tools download zip
+tools/*.zip
+
+# SSL Certs
+*.pem
+
+# IDE & OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

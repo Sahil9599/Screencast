@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirror Cast - Screen Mirroring</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header fade-in">
+            <div class="logo">📱➜📺</div>
+            <h1>Mirror Cast</h1>
+            <p class="subtitle">Cast your mobile screen to PC — using just Hotspot!</p>
+            <span class="badge">🔒 No Internet Required</span>
+        </header>
+
+        <div class="card-grid">
+            <!-- Receiver Card -->
+            <a href="/receiver" class="card fade-in fade-in-delay-1" style="text-decoration:none; color:inherit;">
+                <div class="card-icon">📺</div>
+                <h2>PC — Receiver</h2>
+                <p>Open this on your PC browser to receive and display the mobile screen stream.</p>
+                <div class="url-box" style="margin-top:16px;">
+                    <span class="label">URL</span>
+                    <span>https://{{ ip }}:{{ port }}/receiver</span>
+                </div>
+            </a>
+
+            <!-- Sender Card -->
+            <a href="/sender" class="card fade-in fade-in-delay-2" style="text-decoration:none; color:inherit;">
+                <div class="card-icon">📱</div>
+                <h2>Mobile — Sender</h2>
+                <p>Open this URL in your mobile browser to share your screen to the PC.</p>
+                <div class="url-box" style="margin-top:16px;">
+                    <span class="label">URL</span>
+                    <span>https://{{ ip }}:{{ port }}/sender</span>
+                </div>
+            </a>
+        </div>
+
+        <div class="card fade-in fade-in-delay-3">
+            <h2>⚡ Quick Setup — कैसे करें?</h2>
+            <ol class="steps" style="margin-top:16px;">
+                <li>PC पर <strong>Mobile Hotspot</strong> ON करो (Settings → Mobile Hotspot)</li>
+                <li>Mobile को PC के <strong>Hotspot से Connect</strong> करो</li>
+                <li>PC के browser में <strong>/receiver</strong> page खोलो</li>
+                <li>Mobile के browser (Chrome) में <strong>/sender</strong> page खोलो</li>
+                <li><strong>"Start Casting"</strong> button दबाओ — screen share permission दो — बस! 🎉</li>
+            </ol>
+        </div>
+
+        <footer class="footer fade-in">
+            <p>Mirror Cast • WebRTC Screen Mirroring • Works over Hotspot</p>
+        </footer>
+    </div>
+</body>
+</html>
